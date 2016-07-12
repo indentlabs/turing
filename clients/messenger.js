@@ -21,6 +21,7 @@ const request = require('request');
 
 let Wit = null;
 let log = null;
+let previous_stimulus = "";
 try {
   // if running from repo
   Wit = require('../').Wit;
@@ -114,6 +115,23 @@ const firstEntityValue = (entities, entity) => {
   return typeof val === 'object' ? val.value : val;
 };
 
+// Feed every retort to Retort
+const feedRetort = (stimulus, message) => {
+  console.log('Feeding retort: "' + stimulus + '" --> "' + message + '"');
+  request({
+    url: 'http://www.retort.us/retort/add?stimulus=' + stimulus + '&response=' + message,
+    json: true
+  }, (error, response, body) => {
+    if (!error && response.statusCode === 200) {
+      console.log(body);// => prints actual json object
+      return body;
+    } else {
+      console.log('Retort feeding error');
+      return null;
+    }
+  });
+};
+
 // Our bot actions
 const actions = {
   send({sessionId}, {text}) {
@@ -141,21 +159,26 @@ const actions = {
     }
   },
   get_retort({context, entities}) {
+    console.log('Incoming message!');
     return new Promise(function(resolve, reject) {
       var message_body = firstEntityValue(entities, 'message_body');
       if (message_body) {
+        if (previous_stimulus) { feedRetort(previous_stimulus, message_body); }
         request({
           url: 'http://www.retort.us/retort/get?stimulus=' + message_body,
-          json: false // handle "undefined" if there is no response
+          json: true // handle "undefined" if there is no response
         }, (error, response, body) => {
           if (!error && response.statusCode === 200) {
-            body = JSON.parse(body);
+            //body = JSON.parse(body);
             if (body) {
-              context.message = body['response'];
+              previous_stimulus = body['response'];
+              context.message   = body['response'];
               return resolve(context);
             } else {
               console.log('No retort found');
-              return resolve("Dunno lol");
+              previous_stimulus = body['response'];
+              context.message = "dunno lol, let's talk about something else";
+              return resolve(context);
             }
           } else {
             console.log('Retort error');

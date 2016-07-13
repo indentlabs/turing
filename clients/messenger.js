@@ -115,23 +115,6 @@ const firstEntityValue = (entities, entity) => {
   return typeof val === 'object' ? val.value : val;
 };
 
-// Feed every retort to Retort
-const feedRetort = (stimulus, message) => {
-  console.log('Feeding retort: "' + stimulus + '" --> "' + message + '"');
-  request({
-    url: 'http://www.retort.us/retort/add?stimulus=' + stimulus + '&response=' + message,
-    json: true
-  }, (error, response, body) => {
-    if (!error && response.statusCode === 200) {
-      console.log(body);// => prints actual json object
-      return body;
-    } else {
-      console.log('Retort feeding error');
-      return null;
-    }
-  });
-};
-
 // Our bot actions
 const actions = {
   send({sessionId}, {text}) {
@@ -163,20 +146,70 @@ const actions = {
     return new Promise(function(resolve, reject) {
       var message_body = firstEntityValue(entities, 'message_body');
       if (message_body) {
-        if (previous_stimulus) { feedRetort(previous_stimulus, message_body); }
+        // Feed retort
+        if (previous_stimulus) {
+          console.log('Feeding retort: "' + previous_stimulus + '" --> "' + message_body + '"');
+          request({
+            url: 'http://www.retort.us/retort/add?stimulus=' + previous_stimulus + '&response=' + message_body,
+            json: true
+          }, (error, response, body) => {
+            if (!error && response.statusCode === 200) {
+              console.log('Retort fed successfully:');
+              console.log(body);
+              return body;
+            } else {
+              console.log('Retort feeding error');
+            }
+          });
+        }
+
+        // Get response to user message
+        console.log('Fetching retort for "' + message_body + '"');
         request({
           url: 'http://www.retort.us/retort/get?stimulus=' + message_body,
-          json: true // handle "undefined" if there is no response
+          json: false // handle "undefined" if there is no response
         }, (error, response, body) => {
           if (!error && response.statusCode === 200) {
-            //body = JSON.parse(body);
-            if (body) {
+            try {
+              body = JSON.parse(body);
+              console.log("Parsed retort body response correctly:");
+              console.log(body);
+
               previous_stimulus = body['response'];
               context.message   = body['response'];
               return resolve(context);
-            } else {
-              console.log('No retort found');
-              previous_stimulus = body['response'];
+
+            } catch (e) {
+              console.log("Couldn't parse retort json body -- likely no retort found");
+
+              // Fetch random response to respond with instead
+              request({
+                url: 'http://www.retort.us/retort/random/opening',
+                json: true
+              }, (error, response, body) => {
+                if (!error && response.statusCode === 200) {
+                  try {
+                    console.log("Parsed random response correctly:");
+                    console.log(body);
+
+                    previous_stimulus = body['stimulus'];
+                    context.message   = body['stimulus'];
+                    return resolve(context);
+
+                  } catch (e) {
+                    console.log("Couldn't parse retort json body -- likely no retort found");
+
+                    // Can't get random message -- respond with catchall instead
+                    previous_stimulus = "dunno lol, let's talk about something else";
+                    context.message = "dunno lol, let's talk about something else";
+                    return resolve(context);
+                  }
+                } else {
+                  console.log('Retort error');
+                  return resolve(null);
+                }
+              });
+              previous_stimulus = "dunno lol, let's talk about something else";
               context.message = "dunno lol, let's talk about something else";
               return resolve(context);
             }
